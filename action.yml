@@ -1,0 +1,97 @@
+name: "Aisance"
+description: "Turn every pull request into a 60-second lesson. Blocks the merge until the author passes."
+branding:
+  icon: "book-open"
+  color: "orange"
+
+inputs:
+  token:
+    description: "Your Aisance API token. Store it as a repo secret and pass it here."
+    required: true
+  api:
+    description: "Aisance front-door base URL."
+    required: false
+    default: "https://hanzi-imini-s.taile05f0.ts.net/aisance"
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Aisance lesson gate"
+      shell: bash
+      env:
+        AISANCE_TOKEN: ${{ inputs.token }}
+        AISANCE_API: ${{ inputs.api }}
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        REPO: ${{ github.repository }}
+      run: |
+        set -uo pipefail
+
+        if [ -z "${PR_NUMBER:-}" ]; then
+          echo "Not a pull_request event — nothing to gate."
+          exit 0
+        fi
+
+        echo "Aisance: generating a lesson for PR #${PR_NUMBER} ..."
+        DIFF="$(gh pr diff "${PR_NUMBER}" 2>/dev/null || true)"
+        if [ -z "${DIFF}" ]; then
+          echo "Aisance: empty diff — nothing to teach. Passing."
+          exit 0
+        fi
+
+        PAYLOAD="$(jq -n \
+          --arg repo "${REPO}" \
+          --argjson pr "${PR_NUMBER}" \
+          --arg author "${PR_AUTHOR}" \
+          --arg diff "${DIFF}" \
+          '{repo: $repo, pr_number: $pr, author: $author, diff: $diff}')"
+
+        RESP="$(curl -sS --max-time 280 -X POST "${AISANCE_API}/lesson" \
+          -H "Authorization: Bearer ${AISANCE_TOKEN}" \
+          -H "Content-Type: application/json" \
+          -d "${PAYLOAD}" || true)"
+
+        if [ -z "${RESP}" ]; then
+          echo "Aisance: front door unreachable — failing open (not blocking this PR)."
+          exit 0
+        fi
+        echo "Aisance response: ${RESP}"
+
+        SKIP="$(echo "${RESP}" | jq -r '.skip // false')"
+        LESSON_ID="$(echo "${RESP}" | jq -r '.id // empty')"
+        QUIZ_URL="$(echo "${RESP}" | jq -r '.quiz_url // empty')"
+
+        if [ "${SKIP}" = "true" ]; then
+          echo "Aisance: this change is too small to teach from — no lesson needed."
+          exit 0
+        fi
+        if [ -z "${LESSON_ID}" ]; then
+          echo "Aisance: no lesson returned — failing open (not blocking this PR)."
+          exit 0
+        fi
+
+        gh pr comment "${PR_NUMBER}" --body "### 🎓 Aisance lesson required
+
+Complete a 60-second lesson about this change to unblock the merge:
+
+**[→ Take the lesson](${QUIZ_URL})**
+
+The merge stays blocked until you pass. This check turns green automatically the moment you do." || true
+
+        echo "Aisance: lesson posted — ${QUIZ_URL}"
+        echo "Waiting for the author to complete it ..."
+
+        for i in $(seq 1 135); do
+          PASSED="$(curl -sS --max-time 20 "${AISANCE_API}/lesson/${LESSON_ID}/status" \
+            -H "Authorization: Bearer ${AISANCE_TOKEN}" | jq -r '.passed // false' 2>/dev/null || echo false)"
+          if [ "${PASSED}" = "true" ]; then
+            echo "Aisance: lesson passed — merge unblocked. ✅"
+            exit 0
+          fi
+          sleep 20
+        done
+
+        echo "Aisance: lesson not completed in time."
+        echo "Finish the lesson, then re-run this check."
+        exit 1
