@@ -34,7 +34,7 @@ runs:
         fi
 
         echo "Aisance: generating a lesson for PR #${PR_NUMBER} ..."
-        DIFF="$(gh pr diff "${PR_NUMBER}" 2>/dev/null || true)"
+        DIFF="$(gh pr diff "${PR_NUMBER}" --repo "${REPO}" 2>/dev/null || true)"
         if [ -z "${DIFF}" ]; then
           echo "Aisance: empty diff — nothing to teach. Passing."
           exit 0
@@ -71,7 +71,7 @@ runs:
           exit 0
         fi
 
-        gh pr comment "${PR_NUMBER}" --body "$(printf '### Aisance lesson required\n\nComplete a 60-second lesson about this change to unblock the merge:\n\n**[Take the lesson](%s)**\n\nThe merge stays blocked until you pass. This check turns green automatically once you do.' "${QUIZ_URL}")" || true
+        gh pr comment "${PR_NUMBER}" --repo "${REPO}" --body "$(printf '### Aisance lesson required\n\nComplete a 60-second lesson about this change to unblock the merge:\n\n**[Take the lesson](%s)**\n\nThe merge stays blocked until you pass. This check turns green automatically once you do.' "${QUIZ_URL}")" || true
 
         echo "Aisance: lesson posted — ${QUIZ_URL}"
         echo "Waiting for the author to complete it ..."
