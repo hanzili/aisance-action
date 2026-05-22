@@ -71,13 +71,7 @@ runs:
           exit 0
         fi
 
-        gh pr comment "${PR_NUMBER}" --body "### 🎓 Aisance lesson required
-
-Complete a 60-second lesson about this change to unblock the merge:
-
-**[→ Take the lesson](${QUIZ_URL})**
-
-The merge stays blocked until you pass. This check turns green automatically the moment you do." || true
+        gh pr comment "${PR_NUMBER}" --body "$(printf '### Aisance lesson required\n\nComplete a 60-second lesson about this change to unblock the merge:\n\n**[Take the lesson](%s)**\n\nThe merge stays blocked until you pass. This check turns green automatically once you do.' "${QUIZ_URL}")" || true
 
         echo "Aisance: lesson posted — ${QUIZ_URL}"
         echo "Waiting for the author to complete it ..."
